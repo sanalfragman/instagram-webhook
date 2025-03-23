@@ -37,19 +37,23 @@ def webhook():
         data = request.json
         logger.info(f"Gelen veri: {data}")
         access_token = "IGAARDZCufpcfZABZAE04SUg2Tkd2R0FHZAGd2LThxa3FxQnBlcFZA2ZATNoZATJqNE1TY1RoZAVdQNXJwZAzdfU1MtSFRqMWJWYl8waHluSGE1RVNPeE9POXJncEZAsQ2ttM0ZAvUjl4U1JBU00yVl84ZAnlrb2VaWUxPR2gyczE2OGI4NU9McwZDZD"
+        my_id = "17841473301044042"  # Senin Instagram ID'n
         
         active_chats = load_active_chats()
         
         for entry in data.get("entry", []):
             for messaging in entry.get("messaging", []):
                 sender_id = messaging["sender"]["id"]
-                logger.info(f"Sender ID: {sender_id}")
+                recipient_id = messaging["recipient"]["id"]
+                logger.info(f"Sender ID: {sender_id}, Recipient ID: {recipient_id}")
                 
                 # Senin gönderdiğin mesaj mı?
                 if "message" in messaging and messaging.get("message", {}).get("is_echo"):
-                    active_chats[sender_id] = time.time()
-                    save_active_chats(active_chats)
-                    logger.info(f"{sender_id} için aktif sohbet işaretlendi.")
+                    if sender_id == my_id:
+                        # Sen mesaj yazdığında, alıcıyı (kullanıcıyı) aktif olarak işaretle
+                        active_chats[recipient_id] = time.time()
+                        save_active_chats(active_chats)
+                        logger.info(f"{recipient_id} için aktif sohbet işaretlendi (senin mesajın).")
                     continue
                 
                 # Kullanıcının mesajı mı?
@@ -74,7 +78,7 @@ def webhook():
                     }
                     response = requests.post(reply_url, json=payload)
                     logger.info(f"Mesaj cevap durumu: {response.status_code} {response.text}")
-                    active_chats[sender_id] = 0  # Otomatik cevap sonrası aktiflik sıfırlansın
+                    active_chats[sender_id] = 0  # Otomatik cevap sonrası sıfırlansın
         
         save_active_chats(active_chats)
         return "OK", 200
