@@ -2,15 +2,28 @@ from flask import Flask, request
 import requests
 import time
 import logging
+import json
+import os
 
 app = Flask(__name__)
 
 # Logging ayarları
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler()])
 logger = logging.getLogger(__name__)
 
-# Aktif sohbetleri tutacak sözlük (geçici bellekte)
-active_chats = {}
+CHAT_FILE = "/tmp/active_chats.json"  # Render'da geçici dosya
+
+def load_active_chats():
+    if os.path.exists(CHAT_FILE):
+        with open(CHAT_FILE, "r") as f:
+            return json.load(f)
+    logger.info("Dosya yok, yeni active_chats oluşturuluyor.")
+    return {}
+
+def save_active_chats(chats):
+    with open(CHAT_FILE, "w") as f:
+        json.dump(chats, f)
+    logger.info(f"Active chats dosyaya kaydedildi: {chats}")
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
@@ -25,6 +38,8 @@ def webhook():
         logger.info(f"Gelen veri: {data}")
         access_token = "IGAARDZCufpcfZABZAE04SUg2Tkd2R0FHZAGd2LThxa3FxQnBlcFZA2ZATNoZATJqNE1TY1RoZAVdQNXJwZAzdfU1MtSFRqMWJWYl8waHluSGE1RVNPeE9POXJncEZAsQ2ttM0ZAvUjl4U1JBU00yVl84ZAnlrb2VaWUxPR2gyczE2OGI4NU9McwZDZD"
         
+        active_chats = load_active_chats()
+        
         for entry in data.get("entry", []):
             for messaging in entry.get("messaging", []):
                 sender_id = messaging["sender"]["id"]
@@ -33,7 +48,8 @@ def webhook():
                 # Senin gönderdiğin mesaj mı?
                 if "message" in messaging and messaging.get("message", {}).get("is_echo"):
                     active_chats[sender_id] = time.time()
-                    logger.info(f"{sender_id} için aktif sohbet işaretlendi: {active_chats}")
+                    save_active_chats(active_chats)
+                    logger.info(f"{sender_id} için aktif sohbet işaretlendi.")
                     continue
                 
                 # Kullanıcının mesajı mı?
@@ -58,8 +74,10 @@ def webhook():
                     }
                     response = requests.post(reply_url, json=payload)
                     logger.info(f"Mesaj cevap durumu: {response.status_code} {response.text}")
-    
-    return "OK", 200
+                    active_chats[sender_id] = 0  # Otomatik cevap sonrası aktiflik sıfırlansın
+        
+        save_active_chats(active_chats)
+        return "OK", 200
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000)
