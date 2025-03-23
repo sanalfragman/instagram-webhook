@@ -54,12 +54,12 @@ def webhook():
                     reply_url = f"https://graph.instagram.com/v21.0/me/messages?access_token={access_token}"
                     payload = {
                         "recipient": {"id": sender_id},
-                        "message": {"text": f"Merhaba {username}. Mesajınız için teşekkürler. Soru ve önerilerinizi buraya yazabilirsiniz. En kısa sürede size yanıt vereceğiz."}
+                        "message": {"text": "Mesajınız için teşekkürler. Soru ve önerilerinizi buraya yazabilirsiniz. En kısa sürede size yanıt vereceğiz."}
                     }
                     response = requests.post(reply_url, json=payload)
                     logger.info(f"Mesaj cevap durumu: {response.status_code} {response.text}")
-        
-        return "OK", 200
+    
+    return "OK", 200
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000)
