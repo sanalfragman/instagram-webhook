@@ -38,7 +38,7 @@ def send_delayed_message(sender_id, access_token, message_text):
         response = requests.post(reply_url, json=payload)
         logger.info(f"Gecikmeli mesaj durumu: {response.status_code} {response.text}")
         if response.status_code == 200:
-            active_chats[sender_id] = 0
+            active_chats[sender_id] = time.time()  # Gecikmeli cevap başarılıysa aktif sohbet başlat
             save_active_chats(active_chats)
 
 active_chats = load_active_chats()
@@ -79,7 +79,7 @@ def webhook():
                         logger.info(f"{sender_id} ile aktif sohbet, otomatik cevap verilmedi")
                         continue
                     
-                    message_text =一段 messaging["message"]["text"]
+                    message_text = messaging["message"]["text"]
                     logger.info(f"Mesaj: {message_text}")
                     user_url = f"https://graph.instagram.com/v21.0/{sender_id}?fields=username&access_token={access_token}"
                     user_response = requests.get(user_url)
@@ -97,7 +97,7 @@ def webhook():
                     logger.info(f"Mesaj cevap durumu: {response.status_code} {response.text}")
                     
                     if response.status_code == 200:
-                        active_chats[sender_id] = 0
+                        active_chats[sender_id] = time.time()  # İlk cevap başarılıysa aktif sohbet başlat
                         save_active_chats(active_chats)
                     else:
                         logger.info(f"İlk mesaj başarısız, gecikmeli gönderim başlatılıyor: {sender_id}")
