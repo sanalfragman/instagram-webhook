@@ -4,7 +4,6 @@ import time
 import logging
 import os
 import json
-import threading
 
 app = Flask(__name__)
 
@@ -27,26 +26,48 @@ def save_active_chats(chats):
         json.dump(chats, f)
     logger.info(f"Active chats dosyaya kaydedildi: {chats}")
 
-def send_delayed_message(sender_id, access_token, message_text):
-    time.sleep(15)  # 15 saniye bekle
-    if sender_id not in active_chats or active_chats[sender_id] == 0:
-        reply_url = f"https://graph.instagram.com/v21.0/me/messages?access_token={access_token}"
-        payload = {
-            "recipient": {"id": sender_id},
-            "message": {"text": "Mesajınız için teşekkürler. Soru ve önerilerinizi buraya yazabilirsiniz. En kısa sürede size yanıt vereceğiz."}
-        }
-        response = requests.post(reply_url, json=payload)
-        logger.info(f"Gecikmeli mesaj durumu: {response.status_code} {response.text}")
-        if response.status_code == 200:
-            active_chats[sender_id] = time.time()  # Gecikmeli cevap başarılıysa aktif sohbet başlat
-            save_active_chats(active_chats)
+def send_auto_reply(sender_id, access_token):
+    reply_url = f"https://graph.instagram.com/v21.0/me/messages?access_token={access_token}"
+    payload = {
+        "recipient": {"id": sender_id},
+        "message": {"text": "Mesajınız için teşekkürler. Soru ve önerilerinizi buraya yazabilirsiniz. En kısa sürede size yanıt vereceğiz."}
+    }
+    response = requests.post(reply_url, json=payload)
+    logger.info(f"Otomatik cevap durumu: {response.status_code} {response.text}")
+    if response.status_code == 200:
+        active_chats[sender_id] = time.time()
+        save_active_chats(active_chats)
+
+def check_last_message(access_token):
+    conv_url = f"https://graph.instagram.com/v21.0/me/conversations?fields=participants,messages&access_token={access_token}"
+    conv_response = requests.get(conv_url)
+    if conv_response.status_code != 200:
+        logger.error(f"Konuşma alma hatası: {conv_response.status_code} {conv_response.text}")
+        return
+    
+    conversations = conv_response.json().get("data", [])
+    if not conversations:
+        logger.info("Hiç konuşma yok.")
+        return
+    
+    latest_conv = conversations[0]
+    participants = latest_conv["participants"]["data"]
+    sender_id = next(p["id"] for p in participants if p["id"] != MY_ID)
+    last_message = latest_conv["messages"]["data"][0]
+    message_time = int(last_message["timestamp"]) / 1000  # Milisaniyeyi saniyeye çevir
+    
+    # Son mesaj 1 dk içinde gelmiş ve cevaplanmamışsa
+    if (time.time() - message_time) <= 60 and sender_id not in active_chats:
+        logger.info(f"Son mesaj 1 dk içinde, cevaplanmamış: {sender_id}")
+        send_auto_reply(sender_id, access_token)
 
 active_chats = load_active_chats()
 access_token = INITIAL_TOKEN
+first_run = True  # Sistem uyandığında ilk çalıştırmayı işaretler
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
-    global active_chats, access_token
+    global active_chats, access_token, first_run
     logger.info("Webhook isteği alındı")
     
     if request.method == 'GET':
@@ -61,6 +82,7 @@ def webhook():
         data = request.json
         logger.info(f"Gelen veri: {data}")
         
+        processed = False
         for entry in data.get("entry", []):
             for messaging in entry.get("messaging", []):
                 sender_id = messaging["sender"]["id"]
@@ -75,33 +97,20 @@ def webhook():
                     continue
                 
                 if "message" in messaging and "is_echo" not in messaging["message"]:
+                    processed = True
                     if sender_id in active_chats and (time.time() - active_chats[sender_id]) < 3600:
                         logger.info(f"{sender_id} ile aktif sohbet, otomatik cevap verilmedi")
                         continue
                     
                     message_text = messaging["message"]["text"]
                     logger.info(f"Mesaj: {message_text}")
-                    user_url = f"https://graph.instagram.com/v21.0/{sender_id}?fields=username&access_token={access_token}"
-                    user_response = requests.get(user_url)
-                    if user_response.status_code == 200:
-                        username = user_response.json().get("username", "kullanıcı")
-                    else:
-                        username = "kullanıcı"
-                    
-                    reply_url = f"https://graph.instagram.com/v21.0/me/messages?access_token={access_token}"
-                    payload = {
-                        "recipient": {"id": sender_id},
-                        "message": {"text": "Mesajınız için teşekkürler. Soru ve önerilerinizi buraya yazabilirsiniz. En kısa sürede size yanıt vereceğiz."}
-                    }
-                    response = requests.post(reply_url, json=payload)
-                    logger.info(f"Mesaj cevap durumu: {response.status_code} {response.text}")
-                    
-                    if response.status_code == 200:
-                        active_chats[sender_id] = time.time()  # İlk cevap başarılıysa aktif sohbet başlat
-                        save_active_chats(active_chats)
-                    else:
-                        logger.info(f"İlk mesaj başarısız, gecikmeli gönderim başlatılıyor: {sender_id}")
-                        threading.Thread(target=send_delayed_message, args=(sender_id, access_token, message_text), daemon=True).start()
+                    send_auto_reply(sender_id, access_token)
+        
+        # Sistem uyandığında (ilk çalıştırma) ve mesaj işlenemediyse son mesajı kontrol et
+        if first_run and not processed:
+            logger.info("Sistem uyandı, son mesaj kontrol ediliyor.")
+            check_last_message(access_token)
+            first_run = False  # İlk çalıştırmadan sonra bayrağı kapat
         
         return "OK", 200
 
