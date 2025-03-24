@@ -4,6 +4,7 @@ import time
 import logging
 import os
 import json
+import threading
 
 app = Flask(__name__)
 
@@ -26,13 +27,22 @@ def save_active_chats(chats):
         json.dump(chats, f)
     logger.info(f"Active chats dosyaya kaydedildi: {chats}")
 
+def send_delayed_message(sender_id, access_token, message_text):
+    time.sleep(15)  # 15 saniye bekle
+    if sender_id not in active_chats or active_chats[sender_id] == 0:
+        reply_url = f"https://graph.instagram.com/v21.0/me/messages?access_token={access_token}"
+        payload = {
+            "recipient": {"id": sender_id},
+            "message": {"text": "Mesajınız için teşekkürler. Soru ve önerilerinizi buraya yazabilirsiniz. En kısa sürede size yanıt vereceğiz."}
+        }
+        response = requests.post(reply_url, json=payload)
+        logger.info(f"Gecikmeli mesaj durumu: {response.status_code} {response.text}")
+        if response.status_code == 200:
+            active_chats[sender_id] = 0
+            save_active_chats(active_chats)
+
 active_chats = load_active_chats()
 access_token = INITIAL_TOKEN
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    logger.info("Health check isteği alındı")
-    return "OK", 200
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
@@ -69,7 +79,7 @@ def webhook():
                         logger.info(f"{sender_id} ile aktif sohbet, otomatik cevap verilmedi")
                         continue
                     
-                    message_text = messaging["message"]["text"]
+                    message_text =一段 messaging["message"]["text"]
                     logger.info(f"Mesaj: {message_text}")
                     user_url = f"https://graph.instagram.com/v21.0/{sender_id}?fields=username&access_token={access_token}"
                     user_response = requests.get(user_url)
@@ -85,9 +95,13 @@ def webhook():
                     }
                     response = requests.post(reply_url, json=payload)
                     logger.info(f"Mesaj cevap durumu: {response.status_code} {response.text}")
+                    
                     if response.status_code == 200:
                         active_chats[sender_id] = 0
                         save_active_chats(active_chats)
+                    else:
+                        logger.info(f"İlk mesaj başarısız, gecikmeli gönderim başlatılıyor: {sender_id}")
+                        threading.Thread(target=send_delayed_message, args=(sender_id, access_token, message_text), daemon=True).start()
         
         return "OK", 200
 
