@@ -39,7 +39,7 @@ def send_auto_reply(sender_id, access_token):
         save_active_chats(active_chats)
 
 def check_last_message(access_token):
-    conv_url = f"https://graph.instagram.com/v21.0/me/conversations?fields=participants,messages&access_token={access_token}"
+    conv_url = f"https://graph.instagram.com/v21.0/me/conversations?fields=participants,messages{{id,created_time,from,text}}&access_token={access_token}"
     conv_response = requests.get(conv_url)
     if conv_response.status_code != 200:
         logger.error(f"Konuşma alma hatası: {conv_response.status_code} {conv_response.text}")
@@ -54,7 +54,7 @@ def check_last_message(access_token):
     participants = latest_conv["participants"]["data"]
     sender_id = next(p["id"] for p in participants if p["id"] != MY_ID)
     last_message = latest_conv["messages"]["data"][0]
-    message_time = int(last_message["timestamp"]) / 1000  # Milisaniyeyi saniyeye çevir
+    message_time = time.mktime(time.strptime(last_message["created_time"], "%Y-%m-%dT%H:%M:%S+%f"))  # ISO formatını saniyeye çevir
     
     # Son mesaj 1 dk içinde gelmiş ve cevaplanmamışsa
     if (time.time() - message_time) <= 60 and sender_id not in active_chats:
@@ -63,11 +63,14 @@ def check_last_message(access_token):
 
 active_chats = load_active_chats()
 access_token = INITIAL_TOKEN
-first_run = True  # Sistem uyandığında ilk çalıştırmayı işaretler
+
+# Sistem başladığında bir kez son mesajı kontrol et
+logger.info("Sistem başlatılıyor, son mesaj kontrol ediliyor.")
+check_last_message(access_token)
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
-    global active_chats, access_token, first_run
+    global active_chats, access_token
     logger.info("Webhook isteği alındı")
     
     if request.method == 'GET':
@@ -105,12 +108,6 @@ def webhook():
                     message_text = messaging["message"]["text"]
                     logger.info(f"Mesaj: {message_text}")
                     send_auto_reply(sender_id, access_token)
-        
-        # Sistem uyandığında (ilk çalıştırma) ve mesaj işlenemediyse son mesajı kontrol et
-        if first_run and not processed:
-            logger.info("Sistem uyandı, son mesaj kontrol ediliyor.")
-            check_last_message(access_token)
-            first_run = False  # İlk çalıştırmadan sonra bayrağı kapat
         
         return "OK", 200
 
